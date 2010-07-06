@@ -108,10 +108,8 @@ _jpegtran(src,dst,conf)
 		}
 
 		if (key = hv_fetch(conf, "rotate", 6, 0)) {
+			if( transformoption.transform != JXFORM_NONE){ my_croak("Can't apply several transforms at once"); }
 			if (SvIOK( *key )) {
-				if( transformoption.transform != JXFORM_NONE){
-					my_croak("Can't apply several transforms at once");
-				}
 				transformoption.transform = 
 					SvIV(*key) ==  90 ? JXFORM_ROT_90 :
 					SvIV(*key) == 180 ? JXFORM_ROT_180 :
@@ -122,6 +120,30 @@ _jpegtran(src,dst,conf)
 				}
 			} else {
 				my_croak("Bad value for rotate");
+			}
+		}
+		if ((key = hv_fetch(conf, "transpose", 9, 0)) && SvTRUE(*key)) {
+			if( transformoption.transform != JXFORM_NONE){ my_croak("Can't apply several transforms at once"); }
+			transformoption.transform = JXFORM_TRANSPOSE;
+		}
+		if ((key = hv_fetch(conf, "transverse", 10, 0)) && SvTRUE(*key)) {
+			if( transformoption.transform != JXFORM_NONE){ my_croak("Can't apply several transforms at once"); }
+			transformoption.transform = JXFORM_TRANSVERSE;
+		}
+		if (key = hv_fetch(conf, "flip", 4, 0)) {
+			if( transformoption.transform != JXFORM_NONE){ my_croak("Can't apply several transforms at once"); }
+			if (SvPOK( *key )) {
+				if (strEQ(SvPV_nolen(*key),"horizontal") || strEQ(SvPV_nolen(*key),"horisontal")) {
+					transformoption.transform = JXFORM_FLIP_H;
+				} else
+				if (strEQ(SvPV_nolen(*key),"vertical")) {
+					transformoption.transform = JXFORM_FLIP_V;
+				} else
+				{
+					my_croak("Bad value for flip: %s",SvPV_nolen(*key));
+				}
+			} else {
+				my_croak("Bad value for flip %s",SvPV_nolen(*key));
 			}
 		}
 		
@@ -165,6 +187,14 @@ _jpegtran(src,dst,conf)
 			//#endif
 		} else {
 			dstinfo.arith_code = FALSE;
+		}
+		
+		if ((key = hv_fetch(conf, "maxmemory", 9, 0))) {
+			if (SvIOK(*key)) {
+				dstinfo.mem->max_memory_to_use = SvIV(*key);
+			} else {
+				my_croak("Bad value for maxmemory: %s",SvPV_nolen(*key));
+			}
 		}
 		
 		//transformoption.crop            = TRUE; // Not implemented

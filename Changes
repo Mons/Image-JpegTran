@@ -1,4 +1,7 @@
 Revision history for Perl extension Image::JpegTran.
 
+TODO: Read exif orientation, and transform accordingly.
+TODO: Write exif orientation.
+
 0.01  2010-07-01
-      First build
+      First build, main features

@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 9;
+use Test::More tests => 17;
 use Image::JpegTran;
 
 #testimg.jpg
@@ -19,6 +19,14 @@ for my $opts (
 	{ r => 0, rotate => 90, perfect => 1 },
 	{ r => 1, rotate => 90, optimize => 1, progressive => 1 },
 	{ r => 1, rotate => 90, arithmetic => 1 },
+	{ r => 1, flip => 'horizontal' },
+	{ r => 1, flip => 'vertical' },
+	{ r => 1, transpose => 1 },
+	{ r => 1, transverse => 1 },
+	{ r => 0, flip => 'somehow' },
+	{ r => 0, flip => \ 'somehow' },
+	{ r => 0, transpose => 1, transverse => 1, },
+	{ r => 1, transpose => 1, mammemory => 1, },
 ) {
 	my $result = delete $opts->{r};
 	my $rc = eval{
@@ -30,10 +38,10 @@ for my $opts (
 		1;
 	};
 	if ($result) {
-		ok $rc, "ok: @{[ %$opts ]}";
+		ok $rc, "ok: @{[ %$opts ]}" or diag "failed: $@";
 	}
 	else {
-		diag "$@";
+		diag "catched: $@";
 		ok !$rc, "bad: @{[ %$opts ]}";
 	}
 };
