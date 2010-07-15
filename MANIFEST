@@ -1,3 +1,4 @@
+inc/Devel/CheckLib.pm
 Changes
 JpegTran.xs
 lib/Image/JpegTran.pm

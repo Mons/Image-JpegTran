@@ -1,3 +1,13 @@
+use lib qw(inc);
+use Devel::CheckLib;
+
+check_lib_or_exit(
+    debug  => 1,
+    lib    => 'jpeg',
+    header => [['sys/types.h','stdio.h','jpeglib.h']],
+    define => "#if JPEG_LIB_VERSION < 80\n#error jpeglib version >= 80 required\n#endif",
+);
+
 use 5.008008;
 use ExtUtils::MakeMaker;
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
