@@ -1,5 +1,7 @@
-inc/Devel/CheckLib.pm
 Changes
+inc/Devel/CheckLib.pm
+jinclude.h
+jpegint.h
 JpegTran.xs
 lib/Image/JpegTran.pm
 Makefile.PL
