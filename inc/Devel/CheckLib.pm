@@ -196,9 +196,9 @@ sub assert_lib {
             'assertlibXXXXXXXX', SUFFIX => '.c'
         );
         print $ch my $prog = 
-            join('',map {"#include <$_>\n"} ref $header ? @$header : $header).
+            join('',map { /^(?:".+"|<.+>)$/ or $_ = "<$_>"; "#include $_\n"} ref $header ? @$header : $header).
             qq{@defines\nint main(void) { return 0; }\n};
-        warn "$prog";
+        #warn "$prog";
         close($ch);
         my $exefile = File::Temp::mktemp( 'assertlibXXXXXXXX' ) . $Config{_exe};
         my @sys_cmd;

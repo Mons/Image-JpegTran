@@ -1,12 +1,21 @@
 use lib qw(inc);
 use Devel::CheckLib;
+use Cwd;
+use Config;
+#for (keys %Config::Config) {
+#	warn "$_: $Config::Config{$_}\n" if /cc|inc|lib/;
+#}
 
 check_lib_or_exit(
-    debug  => 1,
-    lib    => 'jpeg',
-    header => [['sys/types.h','stdio.h','jpeglib.h']],
-    define => "#if JPEG_LIB_VERSION < 80\n#error jpeglib version >= 80 required\n#endif",
+    debug   => 1,
+    lib     => 'jpeg',
+    libpath => [ grep length, split /\s+/,$Config::Config{libsdirs} ],
+    incpath => [ Cwd::cwd(), grep length, split /\s+/,$Config::Config{locincpth} ],
+    header  => [['"jinclude.h"','<jpeglib.h>']],
+    define  => "#if JPEG_LIB_VERSION < 80\n#error jpeglib version >= 80 required\n#endif",
 );
+
+#perl -Muni::perl=:dumper -MConfig -E 'say dumper \%Config::Config'                
 
 use 5.008008;
 use ExtUtils::MakeMaker;

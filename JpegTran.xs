@@ -8,9 +8,7 @@
 #define SAVE_MARKERS_SUPPORTED 1
 #define ENTROPY_OPT_SUPPORTED  1
 
-#include <sys/types.h>
-#include <stddef.h>
-//#include <jinclude.h>
+#include "jinclude.h"
 #include <jpeglib.h>
 #include "transupp.h"
 
