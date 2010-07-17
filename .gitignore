@@ -10,4 +10,5 @@ Makefile
 Makefile.old
 MANIFEST.bak
 *.jpg
+!t/data/*
 test*.pl
