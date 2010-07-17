@@ -217,7 +217,7 @@ sub assert_lib {
         }
         warn "# @sys_cmd\n" if $args{debug};
         my $rv = $args{debug} ? system(@sys_cmd) : _quiet_system(@sys_cmd);
-        push @missing, $header if $rv != 0 || ! -x $exefile; 
+        push @missing, ref $header ? "@$header" : $header if $rv != 0 || ! -x $exefile; 
         _cleanup_exe($exefile);
         unlink $cfile;
     } 

@@ -11,6 +11,5 @@ README.IJG
 t/00-load.t
 t/01-conversions.t
 t/data/testimg.jpg
-t/Image-JpegTran.t
 transupp.c
 transupp.h
