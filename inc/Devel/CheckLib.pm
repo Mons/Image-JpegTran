@@ -146,7 +146,7 @@ sub check_lib_or_exit {
 
 sub assert_lib {
     my %args = @_;
-    my (@libs, @libpaths, @headers, @incpaths, @defines);
+    my (@libs, @libpaths, @headers, @incpaths, @defines, @defines0);
 
     # FIXME: these four just SCREAM "refactor" at me
     @libs = (ref($args{lib}) ? @{$args{lib}} : $args{lib}) 
@@ -159,6 +159,8 @@ sub assert_lib {
         if $args{incpath};
     @defines = (ref($args{define}) ? @{$args{define}} : $args{define}) 
         if $args{define};
+    @defines0 = (ref($args{define0}) ? @{$args{define0}} : $args{define0}) 
+        if $args{define0};
 
     # work-a-like for Makefile.PL's LIBS and INC arguments
     # if given as command-line argument, append to %args
@@ -196,6 +198,7 @@ sub assert_lib {
             'assertlibXXXXXXXX', SUFFIX => '.c'
         );
         print $ch my $prog = 
+            qq{@defines0\n}.
             join('',map { /^(?:".+"|<.+>)$/ or $_ = "<$_>"; "#include $_\n"} ref $header ? @$header : $header).
             qq{@defines\nint main(void) { return 0; }\n};
         #warn "$prog";
