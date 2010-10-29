@@ -93,6 +93,10 @@
  * Codes for supported types of image transformations.
  */
 
+static const unsigned char JExifHeader[]   = {0x45, 0x78, 0x69, 0x66, 0x00, 0x00};
+static const unsigned char JFIFHeader[]    = {0x4a, 0x46, 0x49, 0x46, 0x00};
+static const unsigned char JAdobeHeader[]  = {0x41, 0x64, 0x6f, 0x62, 0x65};
+
 typedef enum {
 	JXFORM_NONE,		/* no transformation */
 	JXFORM_FLIP_H,		/* horizontal flip */
@@ -103,6 +107,17 @@ typedef enum {
 	JXFORM_ROT_180,		/* 180-degree rotation */
 	JXFORM_ROT_270		/* 270-degree clockwise (or 90 ccw) */
 } JXFORM_CODE;
+
+static const char* JXFORM_NAME[] = {
+	 "None"
+	,"Flip horizontal"
+	,"Flip vertical"
+	,"Transpose"
+	,"Transverse"
+	,"Rotate 90 CW"
+	,"Rotate 180 CW"
+	,"Rotate 270 CW"
+};
 
 /*
  * Codes for crop parameters, which can individually be unspecified,
@@ -150,6 +165,8 @@ typedef struct {
   JDIMENSION y_crop_offset;
   int iMCU_sample_width;	/* destination iMCU size */
   int iMCU_sample_height;
+  
+  boolean discard_thumbnail;
 } jpeg_transform_info;
 
 
@@ -193,21 +210,57 @@ EXTERN(boolean) jtransform_perfect_transform
  * Support for copying optional markers from source to destination file.
  */
 
-typedef enum {
-	JCOPYOPT_NONE,		/* copy no optional markers */
-	JCOPYOPT_COMMENTS,	/* copy only comment (COM) markers */
-	JCOPYOPT_ALL		/* copy all optional markers */
-} JCOPY_OPTION;
+/* 
 
-#define JCOPYOPT_DEFAULT  JCOPYOPT_COMMENTS	/* recommended default */
+my %jpegMarker = (
+    0x01 => 'TEM',
+    0xc0 => 'SOF0', # to SOF15, with a few exceptions below
+    0xc4 => 'DHT',
+    0xc8 => 'JPGA',
+    0xcc => 'DAC',
+    0xd0 => 'RST0',
+    0xd8 => 'SOI',
+    0xd9 => 'EOI',
+    0xda => 'SOS',
+    0xdb => 'DQT',
+    0xdc => 'DNL',
+    0xdd => 'DRI',
+    0xde => 'DHP',
+    0xdf => 'EXP',
+    0xe0 => 'APP0', # to APP15
+    0xf0 => 'JPG0',
+    0xfe => 'COM',
+);
+
+*/
+
+typedef unsigned long JCOPY_MASK;
+
+#define JCOPY_NONE     0x00000000
+#define JCOPY_EXIF     0x00000001 // APP1
+#define JCOPY_ICC      0x00000002 // APP2
+#define JCOPY_META     0x00000004 // APP3
+#define JCOPY_SCALADO  0x00000008 // APP4
+#define JCOPY_RMETA    0x00000010 // APP5
+#define JCOPY_EPPIM    0x00000020 // APP6
+#define JCOPY_APP7     0x00000040 // ????
+#define JCOPY_SPIFF    0x00000080 // APP8
+#define JCOPY_ACOM     0x00000100 // APP10 | Comment
+#define JCOPY_APP11    0x00000200 // ????
+#define JCOPY_PINFO    0x00000400 // APP12 | PictureInfo
+#define JCOPY_PSHOP    0x00000800 // APP13 | Photoshop
+#define JCOPY_ADOBE    0x00001000 // APP14
+#define JCOPY_APP15    0x00002000 // ????
+
+#define JCOPY_COM      0x20000000 // JPEG_COM (0xfe) APP0 + 30
+
+#define JCOPY_ALL      0x20002fff
+#define JCOPY_DEFAULT  (JCOPY_ALL - JCOPY_ADOBE - JCOPY_PSHOP - JCOPY_APP7 - JCOPY_APP11 - JCOPY_APP15)
 
 /* Setup decompression object to save desired markers in memory */
-EXTERN(void) jcopy_markers_setup
-	JPP((j_decompress_ptr srcinfo, JCOPY_OPTION option));
+EXTERN(void) jcopy_markers_setup JPP((j_decompress_ptr srcinfo, JCOPY_MASK option));
 /* Copy markers saved in the given source object to the destination object */
-EXTERN(void) jcopy_markers_execute
-	JPP((j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
-	     JCOPY_OPTION option));
+EXTERN(void) jcopy_markers_execute JPP((j_decompress_ptr srcinfo, j_compress_ptr dstinfo, JCOPY_MASK option));
 
 /* miscellaneous useful macros */
 #ifdef DONT_USE_B_MODE		/* define mode parameters for fopen() */

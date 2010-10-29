@@ -6,8 +6,9 @@ use warnings;
 use base 'Exporter';
 use Carp;
 
-our @EXPORT_OK = our @EXPORT = qw( jpegtran );
-our $VERSION = '0.02';
+our @EXPORT_OK = ( 'jpegautotran', our @EXPORT = qw( jpegtran ) );
+our %EXPORT_TAGS = ( 'all' => \@EXPORT_OK );
+our $VERSION = '0.02_01';
 
 use XSLoader;
 XSLoader::load('Image::JpegTran', $VERSION);
@@ -17,10 +18,16 @@ sub jpegtran($$;%) {
 	-e( $src ) or croak "Can't find source file `$src'";
 	my $dst = shift;
 	# TODO: more sugar options
-	my %args = (
-		@_==1 && ref $_[0] ? %{$_[0]} : @_
-	);
+	my %args = ( @_==1 && ref $_[0] ? %{$_[0]} : @_ );
 	_jpegtran($src,$dst,\%args);
+}
+sub jpegautotran($$;%) {
+	my $src = shift;
+	-e( $src ) or croak "Can't find source file `$src'";
+	my $dst = shift;
+	# TODO: more sugar options
+	my %args = ( @_==1 && ref $_[0] ? %{$_[0]} : @_ );
+	_jpegautotran($src,$dst,\%args);
 }
 
 
@@ -33,12 +40,14 @@ Image::JpegTran - XS wrapper around lossless JPEG transformation utility - jpegt
 
 =head1 SYNOPSIS
 
-    use Image::JpegTran;
+    use Image::JpegTran ':all';
     
     jpegtran 'source.jpg','result.jpg', rotate => 90, trim => 1, perfect => 1;
     jpegtran 'source.jpg','result.jpg', transpose => 1;
     jpegtran 'source.jpg','result.jpg', transverse => 1;
     jpegtran 'source.jpg','result.jpg', flip => 'horizontal';
+    
+    jpegautotran 'source.jpg'; # automaticallty rotate image if
 
 =head1 DESCRIPTION
 
@@ -56,9 +65,17 @@ Copy no extra markers from source file
 
 Copy only comment markers
 
+=item copy => 'exif'
+
+Copy only EXIF marker
+
 =item copy => 'all'
 
-Copy all extra markers (comments and EXIF) (default)
+Copy all extra markers (comments, EXIF, etc) (default)
+
+=item discard_thumbnail => 0 | 1
+
+Discard thumbnail from EXIF (default = 1)
 
 =item optimize => 0 | 1
 
@@ -72,7 +89,7 @@ Create progressive JPEG file (default = 0)
 
 Reduce to grayscale (omit color data) (default = 0)
 
-=item flip => 'horizontal' | 'vertical'
+=item flip => 'horizontal' | 'h' | 'vertical' | 'v'
 
 Mirror image (left-right or top-bottom)
 
@@ -82,15 +99,15 @@ Rotate image (degrees clockwise)
 
 =item transpose => 1
 
-Transpose image
+Transpose image (flip-h + rotate 270)
 
 =item transverse => 1
 
-Transverse transpose image
+Transverse image (flip-h + rotate 90)
 
 =item trim => 1
 
-Drop non-transformable edge blocks or
+Drop non-transformable edge blocks (after this, any transformation on resulting image would be perfect)
 
 =item perfect
 

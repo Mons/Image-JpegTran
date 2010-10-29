@@ -26,7 +26,7 @@ for my $opts (
 	{ r => 0, flip => 'somehow' },
 	{ r => 0, flip => \ 'somehow' },
 	{ r => 0, transpose => 1, transverse => 1, },
-	{ r => 1, transpose => 1, mammemory => 1, },
+	{ r => 1, transpose => 1, maxmemory => 1, },
 ) {
 	my $result = delete $opts->{r};
 	my $rc = eval{

@@ -22,8 +22,12 @@
 #include "transupp.h"		/* My own external interface */
 #include <ctype.h>		/* to declare isdigit() */
 
+#include <libexif/exif-loader.h>
+#include <libexif/exif-data.h>
+#include <libexif/exif-log.h>
+#include <libexif/exif-mem.h>
 
-#if TRANSFORMS_SUPPORTED
+#define match(x,y) (!memcmp(x,y,sizeof(y)))
 
 /*
  * Lossless image transformation routines.  These routines work on DCT
@@ -1137,161 +1141,225 @@ transpose_critical_parameters (j_compress_ptr dstinfo)
   }
 }
 
+#define EXIF_FOUND_WIDTH  1
+#define EXIF_FOUND_HEIGHT 2
+#define EXIF_FOUND_ORIENT 4
+#define EXIF_FOUND_ALL (1|2|4)
 
-/* Adjust Exif image parameters.
- *
- * We try to adjust the Tags ExifImageWidth and ExifImageHeight if possible.
- */
+static ExifEntry * exif_content_add_tag_intvalue( ExifContent * c, ExifTag tag, int value ) {
+	if (!c || !c->parent) return;
+	ExifEntry *e;
+	ExifByteOrder o = exif_data_get_byte_order(c->parent);
+	e = exif_entry_new();
+	exif_content_add_entry(c, e);
+	exif_entry_unref(e);
+	exif_entry_initialize(e, tag);
+	switch (e->format) {
+		case EXIF_FORMAT_LONG:
+			exif_set_long (e->data, o, value);
+			break;
+		case EXIF_FORMAT_SLONG:
+			exif_set_slong (e->data, o, value);
+			break;
+		case EXIF_FORMAT_BYTE:
+			e->data[0] = (unsigned char) value;
+			break;
+		case EXIF_FORMAT_SBYTE:
+			e->data[0] = (char) value;
+			break;
+		case EXIF_FORMAT_SSHORT:
+			exif_set_sshort (e->data, o, value);
+			break;
+		case EXIF_FORMAT_SHORT:
+			exif_set_short (e->data, o, value);
+			break;
+		default:
+			fprintf(stderr, "Bad format for `exif_content_add_tag_intvalue': %d\n",e->format);
+			return NULL;
+	}
+	exif_entry_fix(e);
+	return e;
+}
+
+static ExifEntry * exif_entry_set_intvalue( ExifEntry * e, ExifByteOrder o, int value ) {
+	if (!e || !e->parent || !e->parent->parent) return;
+	switch (e->format) {
+		case EXIF_FORMAT_LONG:
+			exif_set_long (e->data, o, value);
+			break;
+		case EXIF_FORMAT_SLONG:
+			exif_set_slong (e->data, o, value);
+			break;
+		case EXIF_FORMAT_BYTE:
+			e->data[0] = (unsigned char) value;
+			break;
+		case EXIF_FORMAT_SBYTE:
+			e->data[0] = (char) value;
+			break;
+		case EXIF_FORMAT_SSHORT:
+			exif_set_sshort (e->data, o, value);
+			break;
+		case EXIF_FORMAT_SHORT:
+			exif_set_short (e->data, o, value);
+			break;
+		default:
+			fprintf(stderr, "Bad format for `exif_content_add_tag_intvalue': %d\n",e->format);
+			return NULL;
+	}
+	exif_entry_fix(e);
+	return e;
+}
+
+
+//JXFORM_FLIP_H	JXFORM_FLIP_V	JXFORM_TRANSPOSE	JXFORM_TRANSVERSE	JXFORM_ROT_90	JXFORM_ROT_180	JXFORM_ROT_270
+//normal
+//flipped h
+//rot 180
+//flipped v
+//transposed
+//rotated 270
+//transversed
+//rotated 90
+
+static char transorient[9][9] = {
+	{0,	0,	0,	0,	0,	0,	0,	0},
+	{0,	2,	4,	5,	7,	8,	3,	6},
+	{0,	1,	3,	6,	8,	7,	4,	5},
+	{0,	4,	2,	7,	5,	6,	1,	8},
+	{0,	3,	1,	8,	6,	5,	2,	7},
+	{0,	8,	6,	1,	3,	2,	7,	4},
+	{0,	7,	5,	2,	4,	1,	8,	3},
+	{0,	6,	8,	3,	1,	4,	5,	2},
+	{0,	5,	7,	4,	2,	3,	6,	1}
+};
 
 LOCAL(void)
-adjust_exif_parameters (JOCTET FAR * data, unsigned int length,
-			JDIMENSION new_width, JDIMENSION new_height)
-{
-  boolean is_motorola; /* Flag for byte order */
-  unsigned int number_of_tags, tagnum;
-  unsigned int firstoffset, offset;
-  JDIMENSION new_value;
+adjust_exif (
+	jpeg_saved_marker_ptr   exif,
+	j_compress_ptr          dstinfo,
+	jpeg_transform_info    *info
+) {
+	
+	//fprintf(stderr,"[%02x] %02x %02x %02x %02x .(%d). %02x %02x\n", data[-1], data[0],data[1],data[2],data[3],length,data[length-2],data[length-1]);
+	ExifData    * edata;
+	ExifContent * content;
+	ExifEntry   * entry, *width, *height;
+	
+	int k,l, orientation, found = 0;
+	unsigned char val[255];
+	ExifByteOrder byteorder;
+	
+	edata = exif_data_new();
+	exif_data_load_data( edata, (const unsigned char *)exif->data, exif->data_length );
+	exif_data_fix(edata);
 
-  if (length < 12) return; /* Length of an IFD entry */
-
-  /* Discover byte order */
-  if (GETJOCTET(data[0]) == 0x49 && GETJOCTET(data[1]) == 0x49)
-    is_motorola = FALSE;
-  else if (GETJOCTET(data[0]) == 0x4D && GETJOCTET(data[1]) == 0x4D)
-    is_motorola = TRUE;
-  else
-    return;
-
-  /* Check Tag Mark */
-  if (is_motorola) {
-    if (GETJOCTET(data[2]) != 0) return;
-    if (GETJOCTET(data[3]) != 0x2A) return;
-  } else {
-    if (GETJOCTET(data[3]) != 0) return;
-    if (GETJOCTET(data[2]) != 0x2A) return;
-  }
-
-  /* Get first IFD offset (offset to IFD0) */
-  if (is_motorola) {
-    if (GETJOCTET(data[4]) != 0) return;
-    if (GETJOCTET(data[5]) != 0) return;
-    firstoffset = GETJOCTET(data[6]);
-    firstoffset <<= 8;
-    firstoffset += GETJOCTET(data[7]);
-  } else {
-    if (GETJOCTET(data[7]) != 0) return;
-    if (GETJOCTET(data[6]) != 0) return;
-    firstoffset = GETJOCTET(data[5]);
-    firstoffset <<= 8;
-    firstoffset += GETJOCTET(data[4]);
-  }
-  if (firstoffset > length - 2) return; /* check end of data segment */
-
-  /* Get the number of directory entries contained in this IFD */
-  if (is_motorola) {
-    number_of_tags = GETJOCTET(data[firstoffset]);
-    number_of_tags <<= 8;
-    number_of_tags += GETJOCTET(data[firstoffset+1]);
-  } else {
-    number_of_tags = GETJOCTET(data[firstoffset+1]);
-    number_of_tags <<= 8;
-    number_of_tags += GETJOCTET(data[firstoffset]);
-  }
-  if (number_of_tags == 0) return;
-  firstoffset += 2;
-
-  /* Search for ExifSubIFD offset Tag in IFD0 */
-  for (;;) {
-    if (firstoffset > length - 12) return; /* check end of data segment */
-    /* Get Tag number */
-    if (is_motorola) {
-      tagnum = GETJOCTET(data[firstoffset]);
-      tagnum <<= 8;
-      tagnum += GETJOCTET(data[firstoffset+1]);
-    } else {
-      tagnum = GETJOCTET(data[firstoffset+1]);
-      tagnum <<= 8;
-      tagnum += GETJOCTET(data[firstoffset]);
-    }
-    if (tagnum == 0x8769) break; /* found ExifSubIFD offset Tag */
-    if (--number_of_tags == 0) return;
-    firstoffset += 12;
-  }
-
-  /* Get the ExifSubIFD offset */
-  if (is_motorola) {
-    if (GETJOCTET(data[firstoffset+8]) != 0) return;
-    if (GETJOCTET(data[firstoffset+9]) != 0) return;
-    offset = GETJOCTET(data[firstoffset+10]);
-    offset <<= 8;
-    offset += GETJOCTET(data[firstoffset+11]);
-  } else {
-    if (GETJOCTET(data[firstoffset+11]) != 0) return;
-    if (GETJOCTET(data[firstoffset+10]) != 0) return;
-    offset = GETJOCTET(data[firstoffset+9]);
-    offset <<= 8;
-    offset += GETJOCTET(data[firstoffset+8]);
-  }
-  if (offset > length - 2) return; /* check end of data segment */
-
-  /* Get the number of directory entries contained in this SubIFD */
-  if (is_motorola) {
-    number_of_tags = GETJOCTET(data[offset]);
-    number_of_tags <<= 8;
-    number_of_tags += GETJOCTET(data[offset+1]);
-  } else {
-    number_of_tags = GETJOCTET(data[offset+1]);
-    number_of_tags <<= 8;
-    number_of_tags += GETJOCTET(data[offset]);
-  }
-  if (number_of_tags < 2) return;
-  offset += 2;
-
-  /* Search for ExifImageWidth and ExifImageHeight Tags in this SubIFD */
-  do {
-    if (offset > length - 12) return; /* check end of data segment */
-    /* Get Tag number */
-    if (is_motorola) {
-      tagnum = GETJOCTET(data[offset]);
-      tagnum <<= 8;
-      tagnum += GETJOCTET(data[offset+1]);
-    } else {
-      tagnum = GETJOCTET(data[offset+1]);
-      tagnum <<= 8;
-      tagnum += GETJOCTET(data[offset]);
-    }
-    if (tagnum == 0xA002 || tagnum == 0xA003) {
-      if (tagnum == 0xA002)
-	new_value = new_width; /* ExifImageWidth Tag */
-      else
-	new_value = new_height; /* ExifImageHeight Tag */
-      if (is_motorola) {
-	data[offset+2] = 0; /* Format = unsigned long (4 octets) */
-	data[offset+3] = 4;
-	data[offset+4] = 0; /* Number Of Components = 1 */
-	data[offset+5] = 0;
-	data[offset+6] = 0;
-	data[offset+7] = 1;
-	data[offset+8] = 0;
-	data[offset+9] = 0;
-	data[offset+10] = (JOCTET)((new_value >> 8) & 0xFF);
-	data[offset+11] = (JOCTET)(new_value & 0xFF);
-      } else {
-	data[offset+2] = 4; /* Format = unsigned long (4 octets) */
-	data[offset+3] = 0;
-	data[offset+4] = 1; /* Number Of Components = 1 */
-	data[offset+5] = 0;
-	data[offset+6] = 0;
-	data[offset+7] = 0;
-	data[offset+8] = (JOCTET)(new_value & 0xFF);
-	data[offset+9] = (JOCTET)((new_value >> 8) & 0xFF);
-	data[offset+10] = 0;
-	data[offset+11] = 0;
-      }
-    }
-    offset += 12;
-  } while (--number_of_tags);
+	if (edata) {
+		//exif_data_dump(edata);
+		byteorder = exif_data_get_byte_order(edata);
+		//fprintf(stderr,"adjust exif with byteorder %s\n",exif_byte_order_get_name(byteorder));
+		
+		for (k = 0; k < EXIF_IFD_COUNT; k++) {
+			content = edata->ifd[k];
+			if (!content) break;
+			for (l = 0; l < content->count; l++) {
+				entry = content->entries[l];
+				//warn("entry %08x -> %s = %s",entry->tag, exif_tag_get_name(entry->tag), exif_entry_get_value(entry,val,255));
+				if (entry->tag == 0x112 ) {
+					switch(entry->format) {
+						case EXIF_FORMAT_SSHORT:
+						case EXIF_FORMAT_BYTE:
+						case EXIF_FORMAT_SBYTE:
+						case EXIF_FORMAT_SHORT:
+							//fprintf(stderr,"Get short\n");
+							orientation = exif_get_short(entry->data,byteorder);
+							break;
+						case EXIF_FORMAT_LONG:
+						case EXIF_FORMAT_SLONG:
+							//fprintf(stderr,"Get long\n");
+							orientation = exif_get_long(entry->data,byteorder);
+							break;
+						default:
+							fprintf(stderr,"Bad format for exif orientation: %s. Reset orientation to normal\n", exif_format_get_name(entry->format));
+							orientation = 0;
+							exif_content_remove_entry(content,entry);
+							break;
+					}
+					if (orientation < 1 || orientation > 8) {
+						fprintf(stderr,"Bad value for orientation: %d. Reset orientation to normal\n", orientation);
+						exif_content_remove_entry(content,entry);
+						continue;
+					}
+					found |= EXIF_FOUND_ORIENT;
+					//exif_entry_dump(entry,1);
+					char neworient = transorient[orientation][info->transform];
+					if (!neworient) neworient = 1;
+					exif_entry_set_intvalue(entry, byteorder, neworient);
+					//fprintf(stderr,"(%s) %d -> (%d) -> %d\n",exif_format_get_name(entry->format),
+					//	orientation, info->transform, neworient);
+				}
+				else
+				if (entry->tag == 0x100) {
+					found |= EXIF_FOUND_WIDTH;
+					exif_entry_set_intvalue(entry, byteorder, dstinfo->jpeg_width);
+				}
+				else
+				if(entry->tag == 0x101) {
+					found |= EXIF_FOUND_HEIGHT;
+					exif_entry_set_intvalue(entry, byteorder, dstinfo->jpeg_height);
+				}
+				if(found == EXIF_FOUND_ALL) {
+					k = EXIF_IFD_COUNT;
+					break;
+				}
+			}
+		}
+		if (found != EXIF_FOUND_ALL) {
+			//fprintf(stderr,"Found not all entries\n");
+			ExifEntry *e;
+			if (! ( found & EXIF_FOUND_ORIENT )) {
+				fprintf(stderr,"Create orientation = 1\n");
+				e = exif_content_add_tag_intvalue( edata->ifd[0], EXIF_TAG_ORIENTATION, transorient[1][info->transform] );
+				exif_entry_dump(e,1);
+			}
+			if (! ( found & EXIF_FOUND_WIDTH )) {
+				e = exif_content_add_tag_intvalue( edata->ifd[0], EXIF_TAG_IMAGE_WIDTH,  dstinfo->jpeg_width );
+				//exif_entry_dump(e,1);
+			}
+			if (! ( found & EXIF_FOUND_HEIGHT )) {
+				e = exif_content_add_tag_intvalue( edata->ifd[0], EXIF_TAG_IMAGE_LENGTH, dstinfo->jpeg_height );
+				//exif_entry_dump(e,1);
+			}
+		}
+		
+		if (info->discard_thumbnail) {
+			ExifData    * newdata;
+			newdata = exif_data_new();
+			exif_data_set_byte_order(newdata,byteorder);
+			int i = 0;
+			for(i=0;i < EXIF_IFD_COUNT; i++) {
+				if( newdata->ifd[i] = edata->ifd[i] ) {
+					newdata->ifd[i]->parent = newdata;
+					exif_content_ref(newdata->ifd[i]);
+				}
+			}
+			exif_data_unref(edata);
+			edata = newdata;
+		}
+		//exif_data_dump(newdata);
+		
+		JOCTET FAR * newexif;
+		unsigned int newlength;
+		exif_data_save_data(edata, &newexif, &newlength);
+		//fprintf(stderr,"created exif: %d (was %d) -> %p (was %p)\n",newlength, exif->data_length, newexif, exif->data);
+		exif->data = newexif;
+		exif->data_length = newlength;
+		return;
+	} else {
+		fprintf(stderr,"bad edata\n");
+	}
+	return;
 }
+
 
 
 /* Adjust output image parameters as needed.
@@ -1306,11 +1374,12 @@ adjust_exif_parameters (JOCTET FAR * data, unsigned int length,
  */
 
 GLOBAL(jvirt_barray_ptr *)
-jtransform_adjust_parameters (j_decompress_ptr srcinfo,
-			      j_compress_ptr dstinfo,
-			      jvirt_barray_ptr *src_coef_arrays,
-			      jpeg_transform_info *info)
-{
+jtransform_adjust_parameters (
+	j_decompress_ptr      srcinfo,
+	j_compress_ptr        dstinfo,
+	jvirt_barray_ptr     *src_coef_arrays,
+	jpeg_transform_info  *info
+) {
   /* If force-to-grayscale is requested, adjust destination parameters */
   if (info->force_grayscale) {
     /* First, ensure we have YCbCr or grayscale data, and that the source's
@@ -1363,31 +1432,29 @@ jtransform_adjust_parameters (j_decompress_ptr srcinfo,
     break;
   }
 
-  /* Adjust Exif properties */
-  if (srcinfo->marker_list != NULL &&
-      srcinfo->marker_list->marker == JPEG_APP0+1 &&
-      srcinfo->marker_list->data_length >= 6 &&
-      GETJOCTET(srcinfo->marker_list->data[0]) == 0x45 &&
-      GETJOCTET(srcinfo->marker_list->data[1]) == 0x78 &&
-      GETJOCTET(srcinfo->marker_list->data[2]) == 0x69 &&
-      GETJOCTET(srcinfo->marker_list->data[3]) == 0x66 &&
-      GETJOCTET(srcinfo->marker_list->data[4]) == 0 &&
-      GETJOCTET(srcinfo->marker_list->data[5]) == 0) {
-    /* Suppress output of JFIF marker */
-    dstinfo->write_JFIF_header = FALSE;
-    /* Adjust Exif image parameters */
-    if (dstinfo->jpeg_width != srcinfo->image_width ||
-	dstinfo->jpeg_height != srcinfo->image_height)
-      /* Align data segment to start of TIFF structure for parsing */
-      adjust_exif_parameters(srcinfo->marker_list->data + 6,
-	srcinfo->marker_list->data_length - 6,
-	dstinfo->jpeg_width, dstinfo->jpeg_height);
-  }
-
-  /* Return the appropriate output data set */
-  if (info->workspace_coef_arrays != NULL)
-    return info->workspace_coef_arrays;
-  return src_coef_arrays;
+	if (srcinfo->marker_list != NULL) {
+		jpeg_saved_marker_ptr marker;
+		marker = srcinfo->marker_list;
+		while (marker) {
+			//fprintf(stderr,"have marker %d (length = %d)\n",marker->marker,marker->data_length );
+			if (
+				marker->marker == JPEG_APP0+1 &&
+				marker->data_length >= 6 && match(marker->data,JExifHeader)
+			) {
+				// Adjust Exif properties
+				//fprintf(stderr,"found exif marker\n");
+				adjust_exif(marker, dstinfo, info);
+				// Suppress output of JFIF marker
+				dstinfo->write_JFIF_header = FALSE;
+				break;
+			}
+			marker = marker->next;
+		}
+	}
+	
+	/* Return the appropriate output data set */
+	if (info->workspace_coef_arrays != NULL) return info->workspace_coef_arrays;
+	return src_coef_arrays;
 }
 
 
@@ -1474,10 +1541,13 @@ jtransform_execute_transform (j_decompress_ptr srcinfo,
  */
 
 GLOBAL(boolean)
-jtransform_perfect_transform(JDIMENSION image_width, JDIMENSION image_height,
-			     int MCU_width, int MCU_height,
-			     JXFORM_CODE transform)
-{
+jtransform_perfect_transform(
+	JDIMENSION image_width,
+	JDIMENSION image_height,
+	int MCU_width,
+	int MCU_height,
+	JXFORM_CODE transform
+) {
   boolean result = TRUE; /* initialize TRUE */
 
   switch (transform) {
@@ -1505,29 +1575,26 @@ jtransform_perfect_transform(JDIMENSION image_width, JDIMENSION image_height,
   return result;
 }
 
-#endif /* TRANSFORMS_SUPPORTED */
-
-
 /* Setup decompression object to save desired markers in memory.
  * This must be called before jpeg_read_header() to have the desired effect.
  */
 
 GLOBAL(void)
-jcopy_markers_setup (j_decompress_ptr srcinfo, JCOPY_OPTION option)
-{
-#ifdef SAVE_MARKERS_SUPPORTED
-  int m;
-
-  /* Save comments except under NONE option */
-  if (option != JCOPYOPT_NONE) {
-    jpeg_save_markers(srcinfo, JPEG_COM, 0xFFFF);
-  }
-  /* Save all types of APPn markers iff ALL option */
-  if (option == JCOPYOPT_ALL) {
-    for (m = 0; m < 16; m++)
-      jpeg_save_markers(srcinfo, JPEG_APP0 + m, 0xFFFF);
-  }
-#endif /* SAVE_MARKERS_SUPPORTED */
+jcopy_markers_setup (
+	j_decompress_ptr srcinfo,
+	JCOPY_MASK mask // see transsupp.h -> JCOPY_
+) {
+	mask &= JCOPY_ALL;
+	if (!mask) return;
+	unsigned int i, x = 1;
+	jpeg_save_markers(srcinfo, JPEG_APP0, 0xFFFF); // always copy APP0;
+	for (i=1; i < 33; i++) {
+		if ( mask & x ) {
+			//fprintf(stderr,"save marker APP0+%d\n",i);
+			jpeg_save_markers(srcinfo, JPEG_APP0 + i, 0xFFFF);
+		}
+		x <<= 1;
+	}
 }
 
 /* Copy markers saved in the given source object to the destination object.
@@ -1538,46 +1605,38 @@ jcopy_markers_setup (j_decompress_ptr srcinfo, JCOPY_OPTION option)
  */
 
 GLOBAL(void)
-jcopy_markers_execute (j_decompress_ptr srcinfo, j_compress_ptr dstinfo,
-		       JCOPY_OPTION option)
-{
-  jpeg_saved_marker_ptr marker;
+jcopy_markers_execute (
+	j_decompress_ptr srcinfo,
+	j_compress_ptr dstinfo,
+	JCOPY_MASK copymask
+) {
+	jpeg_saved_marker_ptr marker;
 
-  /* In the current implementation, we don't actually need to examine the
-   * option flag here; we just copy everything that got saved.
-   * But to avoid confusion, we do not output JFIF and Adobe APP14 markers
-   * if the encoder library already wrote one.
-   */
-  for (marker = srcinfo->marker_list; marker != NULL; marker = marker->next) {
-    if (dstinfo->write_JFIF_header &&
-	marker->marker == JPEG_APP0 &&
-	marker->data_length >= 5 &&
-	GETJOCTET(marker->data[0]) == 0x4A &&
-	GETJOCTET(marker->data[1]) == 0x46 &&
-	GETJOCTET(marker->data[2]) == 0x49 &&
-	GETJOCTET(marker->data[3]) == 0x46 &&
-	GETJOCTET(marker->data[4]) == 0)
-      continue;			/* reject duplicate JFIF */
-    if (dstinfo->write_Adobe_marker &&
-	marker->marker == JPEG_APP0+14 &&
-	marker->data_length >= 5 &&
-	GETJOCTET(marker->data[0]) == 0x41 &&
-	GETJOCTET(marker->data[1]) == 0x64 &&
-	GETJOCTET(marker->data[2]) == 0x6F &&
-	GETJOCTET(marker->data[3]) == 0x62 &&
-	GETJOCTET(marker->data[4]) == 0x65)
-      continue;			/* reject duplicate Adobe */
-#ifdef NEED_FAR_POINTERS
-    /* We could use jpeg_write_marker if the data weren't FAR... */
-    {
-      unsigned int i;
-      jpeg_write_m_header(dstinfo, marker->marker, marker->data_length);
-      for (i = 0; i < marker->data_length; i++)
-	jpeg_write_m_byte(dstinfo, marker->data[i]);
-    }
-#else
-    jpeg_write_marker(dstinfo, marker->marker,
-		      marker->data, marker->data_length);
-#endif
-  }
+	/* In the current implementation, we don't actually need to examine the
+	 * option flag here; we just copy everything that got saved.
+	 * But to avoid confusion, we do not output JFIF and Adobe APP14 markers
+	 * if the encoder library already wrote one.
+	 */
+	for (marker = srcinfo->marker_list; marker != NULL; marker = marker->next) {
+		if (marker->marker == JPEG_APP0 + 1) {
+			if ( marker->data_length > 6 && match(marker->data,JExifHeader) ) {
+			} else {
+				if (copymask != JCOPY_ALL) {
+					//fprintf(stderr,"skip exif of type %02x %02x\n", marker->data[0],marker->data[1]);
+					continue;
+				}
+			}
+		}
+		
+		if (
+			dstinfo->write_JFIF_header && marker->marker == JPEG_APP0 &&
+			marker->data_length >= 5 && match(marker->data,JFIFHeader)
+		) continue;			// reject duplicate JFIF
+		if (
+			dstinfo->write_Adobe_marker && marker->marker == JPEG_APP0+14 &&
+			marker->data_length >= 5 && match(marker->data,JAdobeHeader)
+		) continue;			// reject duplicate Adobe
+		//fprintf(stderr,"write marker %04x %p (length = %d)\n",marker->marker,marker->data,marker->data_length);
+		jpeg_write_marker(dstinfo, marker->marker, marker->data, marker->data_length);
+	}
 }
