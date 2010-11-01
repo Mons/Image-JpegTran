@@ -1,5 +1,6 @@
 Changes
 inc/Devel/CheckLib.pm
+inc/ExtUtils/PkgConfig.pm
 jinclude.h
 jpegint.h
 JpegTran.xs
@@ -12,6 +13,18 @@ README
 README.IJG
 t/00-load.t
 t/01-conversions.t
+t/02-autocorrect.t
 t/data/testimg.jpg
+t/fx/F-fh.jpg
+t/fx/F-fv.jpg
+t/fx/F-r180.jpg
+t/fx/F-r270.jpg
+t/fx/F-r90.jpg
+t/fx/F-tp.jpg
+t/fx/F-tv.jpg
+t/fx/F.jpg
+t/fx/N.jpg
+t/fx/X.jpg
+t/fx/Z-test.jpg
 transupp.c
 transupp.h

@@ -1,40 +1,95 @@
-Image-JpegTran version 0.01
-===========================
+NAME
+    Image::JpegTran - XS wrapper around lossless JPEG transformation utility
+    - jpegtran
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+SYNOPSIS
+        use Image::JpegTran ':all';
+    
+        jpegtran 'source.jpg','result.jpg', rotate => 90, trim => 1, perfect => 1;
+        jpegtran 'source.jpg','result.jpg', transpose => 1;
+        jpegtran 'source.jpg','result.jpg', transverse => 1;
+        jpegtran 'source.jpg','result.jpg', flip => 'horizontal';
+    
+        jpegautotran 'source.jpg'; # automaticallty rotate image if
 
-A README file is required for CPAN modules since CPAN extracts the
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+DESCRIPTION
+    Use lossless jpeg transformations, like when using "jpegtran" utility,
+    from Perl
 
-INSTALLATION
+OPTIONS
+    copy => 'none'
+        Copy no extra markers from source file
 
-To install this module type the following:
+    copy => 'comments'
+        Copy only comment markers
 
-   perl Makefile.PL
-   make
-   make test
-   make install
+    copy => 'exif'
+        Copy only EXIF marker
 
-DEPENDENCIES
+    copy => 'all'
+        Copy all extra markers (comments, EXIF, etc) (default)
 
-This module requires these other modules and libraries:
+    discard_thumbnail => 0 | 1
+        Discard thumbnail from EXIF (default = 1)
 
-  blah blah blah
+    optimize => 0 | 1
+        Optimize Huffman table (smaller file, but slow compression), default
+        = 0
 
-COPYRIGHT AND LICENCE
+    progressive => 0 | 1
+        Create progressive JPEG file (default = 0)
 
-Put the correct copyright and licence information here.
+    grayscale => 0 | 1
+        Reduce to grayscale (omit color data) (default = 0)
 
-Copyright (C) 2010 by Vladimir Perepelitsa
+    flip => 'horizontal' | 'h' | 'vertical' | 'v'
+        Mirror image (left-right or top-bottom)
 
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself, either Perl version 5.12.0 or,
-at your option, any later version of Perl 5 you may have available.
+    rotate => 90 | 180 | 270
+        Rotate image (degrees clockwise)
 
+    transpose => 1
+        Transpose image (flip-h + rotate 270)
+
+    transverse => 1
+        Transverse image (flip-h + rotate 90)
+
+    trim => 1
+        Drop non-transformable edge blocks (after this, any transformation
+        on resulting image would be perfect)
+
+    perfect
+        Fail if there is non-transformable edge blocks
+
+    maxmemory => N
+        Maximum memory to use (in kbytes)
+
+    arithmetic => 1
+        Use arithmetic coding
+
+      -restart N     Set restart interval in rows, or in blocks with B
+      -verbose  or  -debug   Emit debug output
+      -scans file    Create multi-scan JPEG per script file
+
+AUTHOR
+    Mons Anderson, <mons@cpan.org>
+
+COPYRIGHT AND LICENSE
+    The main part of this module is copyright (C) 1991-2010
+
+    The Independent JPEG Group's JPEG software
+
+    Thomas G. Lane, Guido Vollbeding.
+
+    See README.IJG
+
+POD ERRORS
+    Hey! The above document had some coding errors, which are explained
+    below:
+
+    Around line 58:
+        Unknown directive: =over4
+
+    Around line 60:
+        '=item' outside of any '=over'
 

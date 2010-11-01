@@ -2,9 +2,14 @@ use lib qw(inc);
 use Devel::CheckLib;
 use Cwd;
 use Config;
-#for (keys %Config::Config) {
-#	warn "$_: $Config::Config{$_}\n" if /cc|inc|lib/;
-#}
+use ExtUtils::PkgConfig;
+
+my $libexif = 'libexif';
+
+ExtUtils::PkgConfig->atleast_version($libexif,'0.6.18') or die "N/A: Need libexif >= 0.6.18\n";
+my $include = ExtUtils::PkgConfig->cflags_only_I($libexif);
+my $cflags  = ExtUtils::PkgConfig->cflags_only_other($libexif);
+my $libs    = ExtUtils::PkgConfig->libs($libexif);
 
 check_lib_or_exit(
     debug   => 1,
@@ -18,9 +23,8 @@ check_lib_or_exit(
 
 check_lib_or_exit(
     debug   => 1,
-    lib     => 'exif',
-    libpath => [ grep length, split /\s+/,$Config::Config{libsdirs} ],
-    incpath => [ Cwd::cwd(), grep length, split /\s+/,$Config::Config{locincpth} ],
+    LIBS    => $libs,
+    INC     => ExtUtils::PkgConfig->cflags($libexif),
     header  => [['<libexif/exif-data.h>']],
     #header  => [['"jinclude.h"','<jpeglib.h>']],
     #define0 => "#define JPEG_INTERNALS\n",
@@ -39,10 +43,10 @@ WriteMakefile(
 	PREREQ_PM         => {}, # e.g., Module::Name => 1.1
 	ABSTRACT_FROM     => 'lib/Image/JpegTran.pm', # retrieve abstract from module
 	AUTHOR            => 'Mons Anderson <mons@cpan.org>',
-	LIBS              => ['-ljpeg -lexif'], # e.g., '-lm'
+	LIBS              => ['-ljpeg '.$libs], # e.g., '-lm'
 	DEFINE            => '', # e.g., '-DHAVE_SOMETHING'
-	INC               => '-I.', # e.g., '-I. -I/usr/include/other'
-	#CCFLAGS           => '-std=gnu99',
+	INC               => '-I. '.$include, # e.g., '-I. -I/usr/include/other'
+	CCFLAGS           => $cflags,
 	#CCFLAGS           => '-Wunused -std=c99',
 	OBJECT            => 'JpegTran.o transupp.o', # link all the C files too
 );
