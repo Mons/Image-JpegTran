@@ -11,11 +11,27 @@ my $include = ExtUtils::PkgConfig->cflags_only_I($libexif);
 my $cflags  = ExtUtils::PkgConfig->cflags_only_other($libexif);
 my $libs    = ExtUtils::PkgConfig->libs($libexif);
 
+my @ll = do {
+	my %uniq;
+	grep length && !$uniq{$_}++,
+	( split /\s+/, $Config::Config{libsdirs}),
+	( split /\s+/, $Config::Config{loclibpth}),
+};
+my @ii = do {
+	my %uniq;
+	grep length && !$uniq{$_}++,
+	( split /\s+/, $Config::Config{usrinc}),
+	( split /\s+/, $Config::Config{locincpth}),
+};
+
+print "# LL = [@ll]\n";
+print "# II = [@ii]\n";
+
 check_lib_or_exit(
     debug   => 1,
     lib     => 'jpeg',
-    libpath => [ grep length, split /\s+/,$Config::Config{libsdirs} ],
-    incpath => [ Cwd::cwd(), grep length, split /\s+/,$Config::Config{locincpth} ],
+    libpath => [ @ll ],
+    incpath => [ Cwd::cwd(), @ii ],
     header  => [['"jinclude.h"','<jpeglib.h>']],
     define0 => "#define JPEG_INTERNALS\n",
     define  => "#if JPEG_LIB_VERSION < 80\n#error jpeglib version >= 80 required\n#endif",
@@ -30,6 +46,9 @@ check_lib_or_exit(
     #define0 => "#define JPEG_INTERNALS\n",
     #define  => "#if JPEG_LIB_VERSION < 80\n#error jpeglib version >= 80 required\n#endif",
 );
+
+$include .= ' '.join(' ',map "-I$_", @ii);
+$libs    .= ' '.join(' ',map "-L$_", @ll);
 
 #perl -Muni::perl=:dumper -MConfig -E 'say dumper \%Config::Config'                
 
@@ -49,4 +68,5 @@ WriteMakefile(
 	CCFLAGS           => $cflags,
 	#CCFLAGS           => '-Wunused -std=c99',
 	OBJECT            => 'JpegTran.o transupp.o', # link all the C files too
+	META_ADD          => { license => 'perl' },
 );

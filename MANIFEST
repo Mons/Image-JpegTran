@@ -5,6 +5,7 @@ jinclude.h
 jpegint.h
 JpegTran.xs
 lib/Image/JpegTran.pm
+LICENSE
 Makefile.PL
 MANIFEST
 MANIFEST.SKIP
