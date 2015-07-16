@@ -203,7 +203,13 @@ typedef struct {
 } jpegtran_pair;
 
 
-void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
+#define BY_REF 1
+#define BY_NAME 2
+
+void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src_arg_type, int dst_arg_type, jpegtran_config *config) {
+		
+		unsigned char *buf=NULL;
+		unsigned long buf_size=0;
 		
 		struct jpeg_decompress_struct   srcinfo;
 		struct jpeg_compress_struct     dstinfo;
@@ -229,13 +235,23 @@ void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
 		dstinfo.arith_code      = config->arith_code;
 		if ( config->max_memory_to_use )
 			dstinfo.mem->max_memory_to_use = config->max_memory_to_use;
-		
-		if ((fp = fopen(src, READ_BINARY)) == NULL) {
-			my_croak("can't open `%s' for reading",src);
-		}
 
-		jpeg_stdio_src(&srcinfo, fp);
-		
+		if( src_arg_type == BY_NAME ) {
+			if ((fp = fopen(src_name, READ_BINARY)) == NULL) {
+				my_croak("can't open `%s' for reading",src_name);
+			}
+
+			jpeg_stdio_src(&srcinfo, fp);
+		} else {
+			// working with memory data
+
+			SV * str_r;
+			str_r = SvRV( src );
+			int len = SvCUR( str_r );
+			char *srcbin  = SvPVbyte( str_r,len );
+
+			jpeg_mem_src(&srcinfo, srcbin, len);
+		}
 		// Enable saving of extra markers that we want to copy
 		jcopy_markers_setup(&srcinfo, config->copy);
 		
@@ -256,21 +272,32 @@ void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
 		// also find out which set of coefficient arrays will hold the output.
 		dst_coef_arrays = jtransform_adjust_parameters(&srcinfo, &dstinfo, src_coef_arrays, &config->trans);
 
-		// Close input file, if we opened it.
-		// Note: we assume that jpeg_read_coefficients consumed all input
-		// until JPEG_REACHED_EOI, and that jpeg_finish_decompress will
-		// only consume more while (! cinfo->inputctl->eoi_reached).
-		// We cannot call jpeg_finish_decompress here since we still need the
-		// virtual arrays allocated from the source object for processing.
-		fclose(fp);
+		if( src_arg_type == BY_NAME ) {
 
-		/* Open the output file. */
-		if ((fp = fopen(dst, WRITE_BINARY)) == NULL) {
-			my_croak("can't open `%s' for writing",dst);
+			// Close input file, if we opened it.
+			// Note: we assume that jpeg_read_coefficients consumed all input
+			// until JPEG_REACHED_EOI, and that jpeg_finish_decompress will
+			// only consume more while (! cinfo->inputctl->eoi_reached).
+			// We cannot call jpeg_finish_decompress here since we still need the
+			// virtual arrays allocated from the source object for processing.
+			fclose(fp);
 		}
 
 		if (config->progressive) {
 			jpeg_simple_progression(&dstinfo);
+		}
+		
+		if( dst_arg_type == BY_NAME ) {
+
+			/* Open the output file. */
+			if ((fp = fopen(dst_name, WRITE_BINARY)) == NULL) {
+				my_croak("can't open `%s' for writing",dst);
+			}
+			// Specify data destination for compression
+			jpeg_stdio_dest(&dstinfo, fp);
+
+		} else {
+			jpeg_mem_dest( &dstinfo, &buf, &buf_size );
 		}
 
 		//#ifdef C_MULTISCAN_FILES_SUPPORTED
@@ -283,9 +310,6 @@ void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
 		//	}
 		//}
 		//#endif
-
-		// Specify data destination for compression
-		jpeg_stdio_dest(&dstinfo, fp);
 
 		// Start compressor (note no image data is actually written here)
 		jpeg_write_coefficients(&dstinfo, dst_coef_arrays);
@@ -301,8 +325,12 @@ void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
 		
 		(void) jpeg_finish_decompress(&srcinfo);
 		jpeg_destroy_decompress(&srcinfo);
-		
-		fclose(fp);
+		if( dst_arg_type == BY_NAME ) {	
+			fclose(fp);
+		} else {
+			sv_setpvn( dst, buf, buf_size );
+			free(buf);
+		}
 		if( jsrcerr.num_warnings + jdsterr.num_warnings ) {
 			warn("Compression/decompression have warings");
 		}
@@ -311,9 +339,32 @@ void jpegtran_execute (char *src, char *dst, jpegtran_config *config) {
 
 #define AUTOTRAN_USAGE "Usage: jpeg*tran(src, [ dst, [ conf ] ])\n"
 #define JPEGTRAN_ARGS(src,dst,conf) \
-		char *dst; \
-		HV   *conf; \
-		if (items > 1 && SvOK(ST(1))) { dst = SvPV_nolen(ST(1)); } else { dst = src; } \
+		char * src_name; \
+		char * dst_name; \
+		int src_arg_type;\
+		int dst_arg_type;\
+		SV * dst; \
+		HV * conf; \
+		if (items > 1 && SvOK(ST(1))) { \
+			if (SvROK(ST(1))) { \
+				dst = (SV *)SvRV(ST(1)); \
+				dst_arg_type = BY_REF;\
+			} else { \
+				dst_name = SvPV_nolen( ST(1) ); \
+				dst_arg_type = BY_NAME;\
+			} \
+			src_arg_type = BY_REF;\
+			if (! SvROK(src)) { \
+				src_name = (char * ) SvPV_nolen( src ); \
+				src_arg_type = BY_NAME;\
+			} \
+		} else { \
+			if (SvROK(src)) { \
+				croak("Second reference or filename is missing. " AUTOTRAN_USAGE); \
+			} else { \
+				dst = src; \
+			} \
+		} \
 		if (items > 2) { \
 			if (SvROK(ST(2)) && SvTYPE(SvRV(ST(2))) == SVt_PVHV ) { \
 				conf = (HV *)SvRV(ST(2)); \
@@ -332,11 +383,10 @@ MODULE = Image::JpegTran		PACKAGE = Image::JpegTran
 
 int
 _jpegautotran(src,...)
-		char *src;
+		SV *src;
 	PROTOTYPE: $;$$
 	CODE:
 		JPEGTRAN_ARGS(src,dst,conf);
-		
 		int k,l;
 		jpegtran_config     config;
 		ExifLoader  * loader;
@@ -347,7 +397,15 @@ _jpegautotran(src,...)
 		parse_config( conf, &config );
 		
 		loader = exif_loader_new();
-		exif_loader_write_file(loader, src);
+		if( src_arg_type == BY_REF ) { // this is binary by itself 
+			SV * str_r;
+			str_r = SvRV( src );
+			int len = SvCUR( str_r );
+			char *srcbin  = SvPVbyte( str_r,len );
+			exif_loader_write( loader, srcbin, len );
+		} else {
+			exif_loader_write_file(loader, src_name);
+		}
 		data = exif_loader_get_data(loader);
 		exif_loader_unref(loader);
 		if (!data) XSRETURN_UNDEF;
@@ -378,12 +436,12 @@ _jpegautotran(src,...)
 		if (orientation > 1 && orientation < 9) { // don't touch orientation = 1 (normal)
 			//warn("convert %d using %s\n", orientation, JXFORM_NAME[autocorrect[orientation]]);
 			config.trans.transform = autocorrect[orientation];
-			jpegtran_execute(src, dst, &config);
+			jpegtran_execute(src, dst, src_name, dst_name, src_arg_type, dst_arg_type, &config);
 			ST(0) = sv_2mortal(newSViv(orientation));
 			XSRETURN(1);
 		} else {
 			config.trans.transform = 0;
-			jpegtran_execute(src, dst, &config);
+			jpegtran_execute(src, dst, src_name, dst_name, src_arg_type, dst_arg_type, &config);
 			ST(0) = sv_2mortal(newSViv(orientation));
 			XSRETURN(1);
 			//XSRETURN_UNDEF;
@@ -392,12 +450,12 @@ _jpegautotran(src,...)
 
 void
 _jpegtran(src,...)
-		char *src;
+		SV *src;
 	PROTOTYPE: $;$$
 	CODE:
 		JPEGTRAN_ARGS(src,dst,conf);
 		
 		jpegtran_config config;
 		parse_config( conf, &config );
-		jpegtran_execute(src, dst, &config);
+		jpegtran_execute(src, dst, src_name, dst_name, src_arg_type, dst_arg_type, &config);
 		return;

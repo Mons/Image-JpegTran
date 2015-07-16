@@ -15,7 +15,7 @@ XSLoader::load('Image::JpegTran', $VERSION);
 
 sub jpegtran($$;%) {
 	my $src = shift;
-	-e( $src ) or croak "Can't find source file `$src'";
+	ref $src or -e( $src ) or croak "Can't find source file `$src'";
 	my $dst = shift;
 	# TODO: more sugar options
 	my %args = ( @_==1 && ref $_[0] ? %{$_[0]} : @_ );
@@ -23,7 +23,7 @@ sub jpegtran($$;%) {
 }
 sub jpegautotran($$;%) {
 	my $src = shift;
-	-e( $src ) or croak "Can't find source file `$src'";
+	ref $src or -e( $src ) or croak "Can't find source file `$src'";
 	my $dst = shift;
 	# TODO: more sugar options
 	my %args = ( @_==1 && ref $_[0] ? %{$_[0]} : @_ );
