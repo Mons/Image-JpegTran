@@ -247,7 +247,7 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 
 			SV * str_r;
 			str_r = SvRV( src );
-			int len = SvCUR( str_r );
+			STRLEN len;
 			char *srcbin  = SvPVbyte( str_r,len );
 
 			jpeg_mem_src(&srcinfo, srcbin, len);
@@ -346,9 +346,13 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 		SV * dst; \
 		HV * conf; \
 		if (items > 1 && SvOK(ST(1))) { \
-			if (SvROK(ST(1))) { \
-				dst = (SV *)SvRV(ST(1)); \
-				dst_arg_type = BY_REF;\
+			if (SvROK(ST(1)) ) { \
+				if( SvTYPE(SvRV(ST(1))) == SVt_PV ){ \
+					dst = (SV *)SvRV(ST(1)); \
+					dst_arg_type = BY_REF;\
+				} else { \
+					croak("Bad destination reference. " AUTOTRAN_USAGE); \
+				} \
 			} else { \
 				dst_name = SvPV_nolen( ST(1) ); \
 				dst_arg_type = BY_NAME;\
@@ -357,6 +361,10 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 			if (! SvROK(src)) { \
 				src_name = (char * ) SvPV_nolen( src ); \
 				src_arg_type = BY_NAME;\
+			} else { \
+				if( SvTYPE(SvRV(src)) != SVt_PV ) { \
+					croak("Bad source reference. " AUTOTRAN_USAGE); \
+				} \
 			} \
 		} else { \
 			if (SvROK(src)) { \
@@ -400,7 +408,7 @@ _jpegautotran(src,...)
 		if( src_arg_type == BY_REF ) { // this is binary by itself 
 			SV * str_r;
 			str_r = SvRV( src );
-			int len = SvCUR( str_r );
+			STRLEN len;
 			char *srcbin  = SvPVbyte( str_r,len );
 			exif_loader_write( loader, srcbin, len );
 		} else {

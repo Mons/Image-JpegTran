@@ -24,6 +24,8 @@ my @ii = do {
 	( split /\s+/, $Config::Config{locincpth}),
 };
 
+
+unshift @ll,'/usr/local/lib';
 print "# LL = [@ll]\n";
 print "# II = [@ii]\n";
 
