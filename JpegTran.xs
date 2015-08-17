@@ -23,13 +23,13 @@
 #define my_croak(...) \
 	STMT_START { \
 		if (fp != NULL) { fclose(fp); } \
-		if (what_destroy & DES_COMP_DST) {\
+		if (SvIV(what_destroy) & DES_DECO_SRC) { \
+			/*(void) jpeg_finish_decompress(&srcinfo);*/ \
+			jpeg_destroy_decompress(&srcinfo); \
+		}\
+		if (SvIV(what_destroy) & DES_COMP_DST) { \
 			/*jpeg_finish_compress(&dstinfo);*/ \
 			jpeg_destroy_compress(&dstinfo); \
-		} \
-		if (what_destroy & DES_DECO_SRC) { \
-			/*(void) jpeg_finish_decompress(&srcinfo);*/\
-			jpeg_destroy_decompress(&srcinfo);\
 		}\
 		croak(__VA_ARGS__);\
 	} STMT_END
@@ -206,31 +206,69 @@ typedef struct {
 #define BY_REF 1
 #define BY_NAME 2
 
+struct my_error_mgr {
+	struct jpeg_error_mgr pub;    /* "public" fields */
+	jmp_buf setjmp_buffer;        /* for return to caller */
+	int des_flag;
+};
+
+typedef struct my_error_mgr * my_error_ptr;
+
+METHODDEF(void)
+my_error_exit (j_common_ptr cinfo)
+{
+	my_error_ptr myerr = (my_error_ptr) cinfo->err;
+	(*cinfo->err->output_message) (cinfo);
+	longjmp(myerr->setjmp_buffer, 1);
+}
+
+METHODDEF(void)
+my_output_message (j_common_ptr cinfo)
+{
+	char buffer[JMSG_LENGTH_MAX];
+	(*cinfo->err->format_message) (cinfo, buffer);
+	warn("JPEG Library Error: %s",buffer);
+}
+
 void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src_arg_type, int dst_arg_type, jpegtran_config *config) {
-		
 		unsigned char *buf=NULL;
 		unsigned long buf_size=0;
 		
 		struct jpeg_decompress_struct   srcinfo;
 		struct jpeg_compress_struct     dstinfo;
-		struct jpeg_error_mgr           jsrcerr, jdsterr;
-		
+		struct my_error_mgr             jsrcerr,jdsterr;
 		jvirt_barray_ptr * src_coef_arrays;
 		jvirt_barray_ptr * dst_coef_arrays;
+		char buffer[JMSG_LENGTH_MAX];
 		
-		int what_destroy = 0;
+		SV *what_destroy = sv_2mortal(newSViv(0));
+
 		// We assume all-in-memory processing and can therefore use only a
 		// single file pointer for sequential input and output operation.
 		FILE * fp = NULL;
-		srcinfo.err = jpeg_std_error(&jsrcerr);
+
+		srcinfo.err = jpeg_std_error(&jsrcerr.pub);
+		jsrcerr.pub.error_exit = my_error_exit;
+		jsrcerr.pub.output_message = my_output_message;
+
+		sv_setiv(what_destroy,SvIV(what_destroy) | DES_DECO_SRC );
+		if (setjmp(jsrcerr.setjmp_buffer)) {
+			(*srcinfo.err->format_message) (&srcinfo, buffer);
+			// warn("wd = %d; ", SvIV(what_destroy));
+			my_croak("Real shit happens in src: %s",buffer);
+		}
 		jpeg_create_decompress(&srcinfo);
-		what_destroy |= DES_DECO_SRC;
-		
-		// Initialize the JPEG compression object with default error handling
-		dstinfo.err = jpeg_std_error(&jdsterr);
+
+		dstinfo.err = jpeg_std_error(&jdsterr.pub);
+		jdsterr.pub.error_exit = my_error_exit;
+		jdsterr.pub.output_message = my_output_message;
+		sv_setiv(what_destroy,SvIV(what_destroy) | DES_COMP_DST );
+		if (setjmp(jdsterr.setjmp_buffer)) {
+			(*dstinfo.err->format_message) (&dstinfo, buffer);
+			my_croak("Real shit happens in dst: %s",buffer);
+		}
 		jpeg_create_compress(&dstinfo);
-		what_destroy |= DES_COMP_DST;
-		
+
 		dstinfo.optimize_coding = config->optimize_coding;
 		dstinfo.arith_code      = config->arith_code;
 		if ( config->max_memory_to_use )
@@ -256,7 +294,9 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 		jcopy_markers_setup(&srcinfo, config->copy);
 		
 		// Read file header
-		(void) jpeg_read_header(&srcinfo, TRUE);
+		if (!jpeg_read_header(&srcinfo, TRUE)) {
+			my_croak("bad source");
+		}
 		
 		if (!jtransform_request_workspace(&srcinfo, &config->trans)) {
 			my_croak("transformation is not perfect");
@@ -281,6 +321,7 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 			// We cannot call jpeg_finish_decompress here since we still need the
 			// virtual arrays allocated from the source object for processing.
 			fclose(fp);
+			fp = NULL;
 		}
 
 		if (config->progressive) {
@@ -331,10 +372,10 @@ void jpegtran_execute (SV *src, SV *dst, char *src_name, char *dst_name, int src
 			sv_setpvn( dst, buf, buf_size );
 			free(buf);
 		}
-		if( jsrcerr.num_warnings + jdsterr.num_warnings ) {
+		if( jsrcerr.pub.num_warnings + jdsterr.pub.num_warnings ) {
 			warn("Compression/decompression have warings");
 		}
-	
+
 }
 
 #define AUTOTRAN_USAGE "Usage: jpeg*tran(src, [ dst, [ conf ] ])\n"

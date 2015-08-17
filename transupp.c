@@ -1147,7 +1147,7 @@ transpose_critical_parameters (j_compress_ptr dstinfo)
 #define EXIF_FOUND_ALL (1|2|4)
 
 static ExifEntry * exif_content_add_tag_intvalue( ExifContent * c, ExifTag tag, int value ) {
-	if (!c || !c->parent) return;
+	if (!c || !c->parent) return NULL;
 	ExifEntry *e;
 	ExifByteOrder o = exif_data_get_byte_order(c->parent);
 	e = exif_entry_new();
@@ -1182,7 +1182,7 @@ static ExifEntry * exif_content_add_tag_intvalue( ExifContent * c, ExifTag tag, 
 }
 
 static ExifEntry * exif_entry_set_intvalue( ExifEntry * e, ExifByteOrder o, int value ) {
-	if (!e || !e->parent || !e->parent->parent) return;
+	if (!e || !e->parent || !e->parent->parent) return NULL;
 	switch (e->format) {
 		case EXIF_FORMAT_LONG:
 			exif_set_long (e->data, o, value);
