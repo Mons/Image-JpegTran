@@ -8,7 +8,7 @@ use Carp;
 
 our @EXPORT_OK = ( 'jpegautotran', our @EXPORT = qw( jpegtran ) );
 our %EXPORT_TAGS = ( 'all' => \@EXPORT_OK );
-our $VERSION = '0.02_02'; $VERSION = eval $VERSION;
+our $VERSION = '0.04'; $VERSION = eval $VERSION;
 
 use XSLoader;
 XSLoader::load('Image::JpegTran', $VERSION);
